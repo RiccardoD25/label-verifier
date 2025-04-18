@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Define OCR Crop Zones</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(to right, #f0f4f8, #ffffff);
+      margin: 0;
+      padding: 40px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #1f2937;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      color: #dc2626;
+      margin-bottom: 0;
+    }
+
+    p.subheading {
+      font-size: 0.95rem;
+      color: #6b7280;
+      margin-top: 6px;
+    }
+
+    #slip-container {
+      position: relative;
+      display: inline-block;
+      max-width: 90%;
+      margin-top: 20px;
+      overflow: scroll;
+    }
+
+    #slip-img {
+      width: 100%;
+      max-width: 1000px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      cursor: grab;
+    }
+
+    .crop-box {
+      position: absolute;
+      border: 2px dashed;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      padding: 2px 4px;
+      user-select: none;
+      color: black;
+      background-color: rgba(255, 255, 255, 0.8);
+    }
+
+    #box-part {
+      border-color: #3b82f6;
+    }
+    #box-dwg {
+      border-color: #8b5cf6;
+    }
+    #box-shipto {
+      border-color: #10b981;
+    }
+    #box-lot {
+      border-color: #ef4444;
+    }
+
+    #save-button, #reset-button {
+      margin: 12px;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: #4f46e5;
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+    }
+
+    #save-button:hover, #reset-button:hover {
+      background-color: #4338ca;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #22c55e;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      display: none;
+      font-size: 0.95em;
+    }
+  </style>
+</head>
+<body>
+  <h1>📌 Drag and Resize Boxes Over Packing Slip</h1>
+  <p class="subheading">Red boxes represent Part #, DWG, QTY, and LOT fields. Adjust each as needed.</p>
+
+  {% if slip_filename %}
+    <div>
+      <button id="save-button">💾 Save Coordinates</button>
+      <button id="reset-button">🔄 Reset Boxes</button>
+    </div>
+    <div id="slip-container">
+      <img id="slip-img" src="{{ url_for('uploaded_file', filename=slip_filename) }}" alt="Packing Slip">
+      <div class="crop-box" id="box-part" style="top: 15px; left: 50px; width: 100px; height: 40px;">PN</div>
+      <div class="crop-box" id="box-dwg" style="top: 15px; left: 590px; width: 60px; height: 40px;">DWG</div>
+      <div class="crop-box" id="box-shipto" style="top: 130px; left: 60px; width: 260px; height: 140px;">SHIPTO</div>
+      <div class="crop-box" id="box-lot" style="top: 15px; left: 520px; width: 60px; height: 40px;">LOT</div>
+    </div>
+    <div class="toast" id="toast">✅ Coordinates saved</div>
+  {% else %}
+    <p style="color: red;"><strong>No packing slip found. Please upload one first from the main page.</strong></p>
+  {% endif %}
+
+  <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+  <script>
+    let originalBoxes = {};
+
+    function getBoxData(id, displayWidth, displayHeight) {
+      const el = document.getElementById(id);
+      return {
+        id: id,
+        left: parseInt(el.style.left),
+        top: parseInt(el.style.top),
+        width: parseInt(el.style.width),
+        height: parseInt(el.style.height),
+        displayWidth: displayWidth,
+        displayHeight: displayHeight
+      };
+    }
+
+    async function saveCoordinates() {
+      const slipImg = document.getElementById('slip-img');
+      const displayWidth = slipImg.clientWidth;
+      const displayHeight = slipImg.clientHeight;
+
+      const boxes = ['box-part', 'box-dwg', 'box-shipto', 'box-lot'].map(id => getBoxData(id, displayWidth, displayHeight));
+
+      const response = await fetch('/save_crop_zones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zones: boxes })
+      });
+
+      const result = await response.json();
+      document.getElementById("toast").style.display = "block";
+      setTimeout(() => document.getElementById("toast").style.display = "none", 2000);
+
+      if (result.redirect) window.location.href = result.redirect;
+    }
+
+    function snapToGrid(value, gridSize = 10) {
+      return Math.round(value / gridSize) * gridSize;
+    }
+
+    interact('.crop-box')
+      .draggable({
+        modifiers: [
+          interact.modifiers.snap({
+            targets: [interact.snappers.grid({ x: 10, y: 10 })],
+            range: Infinity,
+            relativePoints: [ { x: 0, y: 0 } ]
+          })
+        ],
+        listeners: {
+          move(event) {
+            const target = event.target;
+            const x = (parseFloat(target.style.left) || 0) + event.dx;
+            const y = (parseFloat(target.style.top) || 0) + event.dy;
+            target.style.left = snapToGrid(x) + 'px';
+            target.style.top = snapToGrid(y) + 'px';
+          }
+        }
+      })
+      .resizable({
+        edges: { left: true, right: true, bottom: true, top: true },
+        modifiers: [
+          interact.modifiers.snapSize({
+            targets: [interact.snappers.grid({ x: 10, y: 10 })]
+          })
+        ],
+        listeners: {
+          move(event) {
+            const target = event.target;
+            let x = parseFloat(target.style.left) || 0;
+            let y = parseFloat(target.style.top) || 0;
+            const width = snapToGrid(event.rect.width);
+            const height = snapToGrid(event.rect.height);
+            x = snapToGrid(x + event.deltaRect.left);
+            y = snapToGrid(y + event.deltaRect.top);
+            target.style.width = `${width}px`;
+            target.style.height = `${height}px`;
+            target.style.left = `${x}px`;
+            target.style.top = `${y}px`;
+          }
+        }
+      });
+
+    document.getElementById('save-button').addEventListener('click', saveCoordinates);
+
+    document.getElementById('reset-button').addEventListener('click', () => {
+      for (const id in originalBoxes) {
+        const box = document.getElementById(id);
+        const { top, left, width, height } = originalBoxes[id];
+        box.style.top = top;
+        box.style.left = left;
+        box.style.width = width;
+        box.style.height = height;
+      }
+    });
+
+    window.onload = () => {
+      ['box-part', 'box-dwg', 'box-shipto', 'box-lot'].forEach(id => {
+        const box = document.getElementById(id);
+        originalBoxes[id] = {
+          top: box.style.top,
+          left: box.style.left,
+          width: box.style.width,
+          height: box.style.height
+        };
+      });
+    };
+  </script>
+</body>
+</html>
